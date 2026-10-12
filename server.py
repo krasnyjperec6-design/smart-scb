@@ -232,14 +232,14 @@ class SmartScbHandler(BaseHTTPRequestHandler):
                 connection.executemany(
                     """
                     INSERT INTO events (model_time, device_id, message, level)
-                    VALUES (?, ?, 'Заявка устранена', 'info')
+                    VALUES (?, ?, 'Заявка устранена · состояние восстановлено', 'info')
                     """,
                     [(model_time, ticket["device_id"]) for ticket in resolved],
                 )
 
         for ticket in resolved:
             logger.info(
-                "ticket resolved | id=%s | device=%s | message=Заявка устранена",
+                "ticket resolved | id=%s | device=%s | message=Заявка устранена · состояние восстановлено",
                 ticket["id"],
                 ticket["device_id"],
             )

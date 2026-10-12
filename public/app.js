@@ -184,10 +184,29 @@ function createTicket(){
  api("/api/tickets",{method:"POST",body:JSON.stringify({device_id:ticket.device,priority:ticket.priority,reason:ticket.reason,state:ticket.state,created_model_time:ticket.created})}).then(function(result){ticket.id=result.id;backendAvailable=true}).catch(markBackendUnavailable);
  addEvent(d.id,"Создана заявка на диагностику · "+priority,d.status==="bad"?"bad":d.status==="warn"?"warn":"info");renderSystem();renderQueue();toast("Заявка по "+d.id+" добавлена")
 }
+function resetDeviceState(d){
+ if(!d)return;
+ d.failures=0;d.forcedBad=false;d.occupied=false;d.control=true;d.lamp=true;
+ d.cycles=d.type==="switch"?2500+(Number(d.id.slice(3))-11)*620:1000;
+ d.temp=d.type==="switch"?31+(Number(d.id.slice(3))-11)%4:d.type==="track"?29+(Number(d.id.slice(3))-1)%3:30+(Number(d.id.slice(3))-1)%4;
+ d.time=d.type==="switch"?round(3.8+(Number(d.id.slice(3))-11)%4*.16,1):0;
+ d.current=d.type==="switch"?round(4.35+(Number(d.id.slice(3))-11)%3*.12,2):d.type==="track"?round(.22+(Number(d.id.slice(3))-1)%3*.04,2):round(.42+(Number(d.id.slice(3))-1)%3*.03,2);
+ d.nominalCurrent=d.type==="switch"?4.45:d.type==="track"?.25:.45;
+ d.voltage=d.type==="switch"?24:d.type==="track"?round(2.8+(Number(d.id.slice(3))-1)%3*.1,1):round(24+(Number(d.id.slice(3))-1)%3,1);
+ d.position=d.type==="switch"?"Плюсовое":d.type==="signal"?"Красный":"—";
+ updateHealth(d);history[d.id]=Array(72).fill(d.health)
+}
+function restoreTicketDevices(items){
+ let restored=0;
+ items.forEach(function(t){let d=device(t.device);if(!d)return;resetDeviceState(d);if(d.id==="SW-17")degradation=false;restored++});
+ if(restored)persistDevices().catch(markBackendUnavailable);
+ const selected=device(selectedId);if(selected)setDiagnosticFromDevice(selected);
+ return restored
+}
 function resolveTicket(ticket){
  if(!ticket||ticket.state!=="Открыта"){toast("Заявка уже устранена");return}
  const finish=function(serverPersisted){
-  ticket.state="Устранена";addEvent(ticket.device,"Заявка устранена","info",serverPersisted);renderSystem();renderQueue()
+  ticket.state="Устранена";restoreTicketDevices([ticket]);addEvent(ticket.device,"Заявка устранена · состояние восстановлено","info",serverPersisted);renderAll()
  };
  api("/api/tickets?device_id="+encodeURIComponent(ticket.device)+"&model_time="+encodeURIComponent(stamp()),{method:"DELETE"}).then(function(){
   backendAvailable=true;finish(false);toast("Заявка по "+ticket.device+" устранена")
@@ -199,8 +218,8 @@ function resolveTickets(){
  const open=tickets.filter(function(t){return t.state==="Открыта"});
  if(!open.length){toast("Открытых заявок нет");return}
  const finish=function(serverPersisted){
-  open.forEach(function(t){t.state="Устранена";addEvent(t.device,"Заявка устранена","info",serverPersisted)});
-  renderSystem();renderQueue()
+  open.forEach(function(t){t.state="Устранена";addEvent(t.device,"Заявка устранена · состояние восстановлено","info",serverPersisted)});
+  restoreTicketDevices(open);renderAll()
  };
  api("/api/tickets?model_time="+encodeURIComponent(stamp()),{method:"DELETE"}).then(function(result){
   backendAvailable=true;finish(false);toast("Устранено заявок: "+Number(result.resolved||open.length))
@@ -268,7 +287,7 @@ function exportCsv(){
 }
 function reset(){
  if(running){running=false;clearInterval(timer);timer=null;$("runBtn").textContent="▶ Запустить"}
- simMinutes=0;degradation=false;devices.forEach(function(d){d.failures=0;d.forcedBad=false;d.occupied=false;d.control=true;d.lamp=true;d.cycles=d.type==="switch"?2500+(Number(d.id.slice(3))-11)*620:1000;d.temp=d.type==="switch"?31+(Number(d.id.slice(3))-11)%4:d.type==="track"?29+(Number(d.id.slice(3))-1)%3:30+(Number(d.id.slice(3))-1)%4;d.time=d.type==="switch"?round(3.8+(Number(d.id.slice(3))-11)%4*.16,1):0;d.current=d.type==="switch"?round(4.35+(Number(d.id.slice(3))-11)%3*.12,2):d.type==="track"?round(.22+(Number(d.id.slice(3))-1)%3*.04,2):round(.42+(Number(d.id.slice(3))-1)%3*.03,2);d.nominalCurrent=d.type==="switch"?4.45:d.type==="track"?.25:.45;d.voltage=d.type==="switch"?24:d.type==="track"?round(2.8+(Number(d.id.slice(3))-1)%3*.1,1):round(24+(Number(d.id.slice(3))-1)%3,1);d.position=d.type==="switch"?"Плюсовое":d.type==="signal"?"Красный":"—";updateHealth(d);history[d.id]=Array(72).fill(d.health)});
+ simMinutes=0;degradation=false;devices.forEach(resetDeviceState);
  selectedId="SW-17";persistDevices().catch(function(){});addEvent("Система","Сброшена учебная симуляция","info");setDiagnostic("good","Диагностика: отклонений нет","Все устройства возвращены к исходным синтетическим показаниям.","Продолжайте наблюдение за телеметрией.");renderAll();renderLog();toast("Симуляция сброшена")
 }
 $("deviceGrid").addEventListener("click",function(e){let card=e.target.closest("[data-device]");if(card)selectDevice(card.getAttribute("data-device"))});
