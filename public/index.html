@@ -15,7 +15,7 @@
 <nav class="toolbar" aria-label="Управление симуляцией">
   <button class="btn primary" id="runBtn">▶ Запустить</button>
   <button class="btn" id="stepBtn">Шаг +1 ч</button>
-  <button class="btn accent" id="scenarioBtn">⚡ Износ SW-17</button>
+  <button class="btn accent" id="scenarioBtn">⚡ Износ выбранного объекта</button>
   <button class="btn" id="randomBtn">Случайное отклонение</button>
   <button class="btn" id="reloadDbBtn">↻ Обновить из БД</button>
   <button class="btn" id="ticketBtn">＋ Заявка на диагностику</button>
@@ -60,8 +60,8 @@
     <section class="panel">
       <div class="panel-heading"><div><span class="section-tag">06 / СЦЕНАРИИ</span><h2>Проверка поведения</h2></div></div>
       <div class="scenario-list">
-        <button class="scenario deteriorate" id="slowBtn"><span class="ico">◷</span><span><strong>Постепенный износ SW-17</strong><small>Рост времени, тока и температуры по ходу времени</small></span></button>
-        <button class="scenario lost" id="lostBtn"><span class="ico">!</span><span><strong>Потеря контроля SW-17</strong><small>Мгновенное критическое событие</small></span></button>
+        <button class="scenario deteriorate" id="slowBtn"><span class="ico">◷</span><span><strong>Постепенный износ выбранного объекта</strong><small>Несколько выбранных объектов могут ухудшаться одновременно</small></span></button>
+        <button class="scenario lost" id="lostBtn"><span class="ico">!</span><span><strong>Аварийное состояние выбранного объекта</strong><small>Мгновенно переводит выбранный объект в критическое состояние</small></span></button>
         <button class="scenario" id="occupyBtn"><span class="ico">▤</span><span><strong>Занять участок TC-03</strong><small>Проверка индикации рельсовой цепи</small></span></button>
       </div>
       <div class="diagnostic" id="diagnosticBox"><div class="diag-head"><span class="dot good" id="diagnosticDot"></span><span id="diagnosticHeading">Диагностика: отклонений нет</span></div><p id="diagnosticMessage">Выберите сценарий или измените телеметрию выбранного объекта.</p><div class="recommendation"><span>РЕКОМЕНДАЦИЯ</span><p id="recommendationText">Продолжайте наблюдение за синтетическими данными.</p></div></div>

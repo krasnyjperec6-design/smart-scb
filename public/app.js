@@ -9,7 +9,7 @@ const devices=[];
 for(let i=0;i<8;i++){const n=11+i;devices.push({id:"SW-"+n,type:"switch",name:"Стрелка "+String(n).slice(-2),location:"Электропривод · стрелочный перевод",time:round(3.8+(i%4)*.16,1),current:round(4.35+(i%3)*.12,2),nominalCurrent:4.45,temp:31+(i%4),voltage:24,control:true,cycles:2500+i*620,failures:0,forcedBad:false,position:"Плюсовое",occupied:false,lamp:true})}
 for(let i=0;i<6;i++){const n=String(i+1).padStart(2,"0");devices.push({id:"TC-"+n,type:"track",name:"Участок "+n,location:"Рельсовая цепь · контроль занятости",time:0,current:round(.22+(i%3)*.04,2),nominalCurrent:.25,temp:29+(i%3),voltage:round(2.8+(i%3)*.1,1),control:true,cycles:1000+i*350,failures:0,forcedBad:false,position:"—",occupied:false,lamp:true})}
 for(let i=0;i<6;i++){const n=String(i+1).padStart(2,"0");devices.push({id:"SG-"+n,type:"signal",name:"Светофор "+n,location:"Светофор · сигнальная лампа",time:0,current:round(.42+(i%3)*.03,2),nominalCurrent:.45,temp:30+(i%4),voltage:round(24+(i%3),1),control:true,cycles:1800+i*400,failures:0,forcedBad:false,position:"Красный",occupied:false,lamp:true})}
-let selectedId="SW-17",simMinutes=0,running=false,degradation=false,timer=null,events=[],tickets=[],toastTimer=null,backendAvailable=false;
+let selectedId="SW-17",simMinutes=0,running=false,activeDegradations=new Set(),timer=null,events=[],tickets=[],toastTimer=null,backendAvailable=false;
 let history={};
 function device(id){return devices.find(function(d){return d.id===id})}
 function loadLocalEvents(){try{const a=JSON.parse(localStorage.getItem(STORE_KEY)||"[]");return Array.isArray(a)?a.slice(0,100):[]}catch(e){return[]}}
@@ -116,7 +116,7 @@ function renderCards(){
  item.innerHTML='<div class="card-top"><span class="dev-id">'+d.id+'</span><span class="pill '+d.status+'">'+statusLabel(d)+'</span></div><h3>'+d.name+'</h3><div class="card-sub">'+(d.type==="switch"?"Стрелочный перевод":d.type==="track"?"Рельсовая цепь":"Светофор")+'</div><div class="card-metric"><span>'+m[0]+'</span><strong>'+m[1]+'</strong></div><div class="mini-bar"><i style="width:'+d.health+'%"></i></div>';
  grid.appendChild(item)});
 }
-function selectDevice(id){if(!device(id))return;selectedId=id;renderCards();renderMap();renderDetail();drawChart();loadTelemetry(id)}
+function selectDevice(id){if(!device(id))return;selectedId=id;$("scenarioBtn").textContent="⚡ Износ "+id;$("slowBtn").querySelector("strong").textContent="Постепенный износ "+id;$("lostBtn").querySelector("strong").textContent="Аварийное состояние "+id;renderCards();renderMap();renderDetail();drawChart();loadTelemetry(id)}
 function renderMap(){devices.forEach(function(d){let el=$("map-"+d.id);if(!el)return;el.setAttribute("class","map-device "+d.status+(d.id===selectedId?" selected":""));let seg=$("seg-"+d.id);if(seg)seg.setAttribute("class","track-seg"+(d.occupied?" occupied":""));let lamp=$("lamp-"+d.id);if(lamp)lamp.setAttribute("class","signal-lamp"+(!d.lamp?" redlamp":""))})}
 function renderDetail(){
  const d=device(selectedId),box=$("detailPanel"),unit=d.type==="switch"?"Электропривод":d.type==="track"?"Контроль занятости":"Светофор";
@@ -185,7 +185,7 @@ function createTicket(){
  addEvent(d.id,"Создана заявка на диагностику · "+priority,d.status==="bad"?"bad":d.status==="warn"?"warn":"info");renderSystem();renderQueue();toast("Заявка по "+d.id+" добавлена")
 }
 function resetDeviceState(d){
- if(!d)return;
+ if(!d)return;activeDegradations.delete(d.id);
  d.failures=0;d.forcedBad=false;d.occupied=false;d.control=true;d.lamp=true;
  d.cycles=d.type==="switch"?2500+(Number(d.id.slice(3))-11)*620:1000;
  d.temp=d.type==="switch"?31+(Number(d.id.slice(3))-11)%4:d.type==="track"?29+(Number(d.id.slice(3))-1)%3:30+(Number(d.id.slice(3))-1)%4;
@@ -198,7 +198,7 @@ function resetDeviceState(d){
 }
 function restoreTicketDevices(items){
  let restored=0;
- items.forEach(function(t){let d=device(t.device);if(!d)return;resetDeviceState(d);if(d.id==="SW-17")degradation=false;restored++});
+ items.forEach(function(t){let d=device(t.device);if(!d)return;resetDeviceState(d);restored++});
  if(restored)persistDevices().catch(markBackendUnavailable);
  const selected=device(selectedId);if(selected)setDiagnosticFromDevice(selected);
  return restored
@@ -233,15 +233,21 @@ function randomDeviation(){
  addEvent(d.id,"Смоделировано отклонение: рост времени, тока и температуры",d.status==="bad"?"bad":"warn");selectedId=d.id;setDiagnosticFromDevice(d);renderAll();toast("Случайное отклонение задано для "+d.id)
 }
 function loseControl(){
- const d=device("SW-17");d.control=false;d.forcedBad=true;d.failures++;updateHealth(d);persistDevices().catch(function(){});selectedId=d.id;addEvent(d.id,"Потеря контроля положения","bad");setDiagnosticFromDevice(d);renderAll();toast("Для SW-17 смоделирована потеря контроля")
+ const d=device(selectedId);if(!d)return;activeDegradations.delete(d.id);d.forcedBad=true;d.failures++;
+ if(d.type==="switch")d.control=false;
+ if(d.type==="track"){d.current=round(d.nominalCurrent*2.2,2);d.voltage=0}
+ if(d.type==="signal")d.lamp=false;
+ updateHealth(d);persistDevices().catch(function(){});addEvent(d.id,"Смоделировано аварийное состояние","bad");setDiagnosticFromDevice(d);renderAll();toast(d.id+" переведён в аварийное состояние")
 }
 function occupyTrack(){
  const d=device("TC-03");d.occupied=!d.occupied;updateHealth(d);persistDevices().catch(function(){});selectedId=d.id;addEvent(d.id,"Состояние рельсовой цепи: "+(d.occupied?"участок занят":"участок свободен"),"info");setDiagnostic("good","Состояние участка · "+d.id,d.occupied?"Рельсовая цепь показывает занятость. Это штатное состояние индикации и не означает отказ само по себе.":"Участок снова отображается свободным.","Сопоставьте состояние участка с процедурой демонстрации; не трактуйте занятость как неисправность автоматически.");renderAll();toast(d.id+": "+(d.occupied?"занят":"свободен"))
 }
 function startDegradation(){
- const d=device("SW-17");degradation=true;selectedId=d.id;d.control=true;d.forcedBad=false;
- if(d.time<4.2){d.time=4.2;d.current=4.65;d.temp=33}
- persistDevices().catch(function(){});addEvent(d.id,"Запущен сценарий постепенного износа привода","info");setDiagnostic("warn","Сценарий активен: ухудшение SW-17","Пока симуляция идёт, модель постепенно увеличивает время перевода, ток и температуру привода.","Запустите ход времени или нажимайте «Шаг +1 ч». Следите за трендом и изменением индекса.");renderAll();toast("Сценарий износа запущен: "+d.id)
+ const d=device(selectedId);if(!d)return;activeDegradations.add(d.id);d.control=true;d.forcedBad=false;
+ if(d.type==="switch"&&d.time<4.2){d.time=4.2;d.current=Math.max(d.current,4.65);d.temp=Math.max(d.temp,33)}
+ if(d.type==="track"){d.current=round(d.current+.03,2);d.temp=round(d.temp+1,1)}
+ if(d.type==="signal"){d.current=round(d.current+.04,2);d.temp=round(d.temp+1,1)}
+ updateHealth(d);persistDevices().catch(function(){});addEvent(d.id,"Запущен сценарий постепенного износа","info");setDiagnostic("warn","Сценарий активен: ухудшение "+d.id,"Пока симуляция идёт, модель ухудшает параметры этого объекта. Другие выбранные объекты могут ухудшаться одновременно.","Запустите ход времени или нажимайте «Шаг +1 ч». Следите за трендом и индексом.");renderAll();toast("Сценарий износа запущен: "+d.id)
 }
 function saveSample(){
  devices.forEach(function(d){history[d.id].push(metricValue(d,$("chartMetric").value));if(history[d.id].length>72)history[d.id].shift()});
@@ -249,7 +255,13 @@ function saveSample(){
 }
 function advance(minutes){
  const oldHour=Math.floor(simMinutes/60);simMinutes+=minutes;
- if(degradation){let d=device("SW-17");let h=minutes/60;d.time=round(d.time+.15*h,2);d.current=round(d.current+.19*h,2);d.temp=round(d.temp+.65*h,1);d.cycles+=Math.round(34*h);updateHealth(d)}
+ activeDegradations.forEach(function(id){
+  let d=device(id);if(!d)return;let h=minutes/60;
+  if(d.type==="switch"){d.time=round(d.time+.15*h,2);d.current=round(d.current+.19*h,2);d.temp=round(d.temp+.65*h,1)}
+  else if(d.type==="track"){d.current=round(d.current+.035*h,3);d.voltage=round(Math.max(0,d.voltage-.08*h),2);d.temp=round(d.temp+.5*h,1)}
+  else{d.current=round(d.current+.045*h,3);d.voltage=round(Math.max(0,d.voltage-.12*h),2);d.temp=round(d.temp+.55*h,1)}
+  d.cycles+=Math.max(1,Math.round(34*h));updateHealth(d)
+ })
  const newHour=Math.floor(simMinutes/60);if(newHour>oldHour){for(let i=oldHour;i<newHour;i++)saveSample()}
  $("modelClock").textContent=clockText();renderSystem();renderCards();renderMap();updateDetailLive();drawChart()
 }
@@ -287,7 +299,7 @@ function exportCsv(){
 }
 function reset(){
  if(running){running=false;clearInterval(timer);timer=null;$("runBtn").textContent="▶ Запустить"}
- simMinutes=0;degradation=false;devices.forEach(resetDeviceState);
+ simMinutes=0;activeDegradations.clear();devices.forEach(resetDeviceState);
  selectedId="SW-17";persistDevices().catch(function(){});addEvent("Система","Сброшена учебная симуляция","info");setDiagnostic("good","Диагностика: отклонений нет","Все устройства возвращены к исходным синтетическим показаниям.","Продолжайте наблюдение за телеметрией.");renderAll();renderLog();toast("Симуляция сброшена")
 }
 $("deviceGrid").addEventListener("click",function(e){let card=e.target.closest("[data-device]");if(card)selectDevice(card.getAttribute("data-device"))});
