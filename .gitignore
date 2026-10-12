@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+
+database/*.db
+database/*.db-*
+!database/.gitkeep
+!database/schema.sql
+
+logs/*.log
+logs/*.log.*
+!logs/.gitkeep
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

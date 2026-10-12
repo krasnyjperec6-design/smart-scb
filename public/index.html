@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMART SCB — симулятор ЖАТ</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="shell">
+<header class="topbar">
+  <div class="brand"><div class="brand-mark">⌁</div><div><div class="eyebrow">УЧЕБНАЯ МОДЕЛЬ · ЖЕЛЕЗНОДОРОЖНАЯ АВТОМАТИКА</div><h1>SMART <span>SCB</span></h1><p class="subtitle">Сигнализация · централизация · блокировка · 20 условных объектов</p></div></div>
+  <div class="status-box"><span class="dot good" id="systemDot"></span><div><strong id="systemStatus">СИСТЕМА В НОРМЕ</strong><small id="systemSub">Синтетические данные · локальная симуляция</small></div></div>
+</header>
+<nav class="toolbar" aria-label="Управление симуляцией">
+  <button class="btn primary" id="runBtn">▶ Запустить</button>
+  <button class="btn" id="stepBtn">Шаг +1 ч</button>
+  <button class="btn accent" id="scenarioBtn">⚡ Износ SW-17</button>
+  <button class="btn" id="randomBtn">Случайное отклонение</button>
+  <button class="btn" id="reloadDbBtn">↻ Обновить из БД</button>
+  <button class="btn" id="ticketBtn">＋ Заявка на диагностику</button>
+  <button class="btn" id="exportBtn">Экспорт CSV</button>
+  <button class="btn quiet" id="resetBtn">Сброс</button>
+  <span class="toolbar-label">Скорость</span><select id="speedSelect" aria-label="Скорость симуляции"><option value="1">×1</option><option value="5">×5</option><option value="15">×15</option></select>
+  <span class="clock">Модельное время <strong id="modelClock">День 1 · 00:00</strong></span>
+</nav>
+<section class="kpis" aria-label="Сводные показатели">
+  <article class="kpi"><div class="kpi-head"><span>ИНДЕКС СОСТОЯНИЯ</span><span>0–100</span></div><div class="kpi-value good" id="healthKpi">100.0</div><div class="kpi-foot">Средняя оценка по 20 объектам</div></article>
+  <article class="kpi"><div class="kpi-head"><span>ТРЕБУЮТ ВНИМАНИЯ</span><span>объекты</span></div><div class="kpi-value" id="attentionKpi">0</div><div class="kpi-foot" id="attentionFoot">Предупреждений и отказов</div></article>
+  <article class="kpi"><div class="kpi-head"><span>ОТКРЫТЫЕ ЗАЯВКИ</span><span>ремонт</span></div><div class="kpi-value" id="ticketsKpi">0</div><div class="kpi-foot">Очередь обслуживания</div></article>
+  <article class="kpi"><div class="kpi-head"><span>ИСТОРИЯ</span><span>модель</span></div><div class="kpi-value" id="historyKpi">72 <small>ч</small></div><div class="kpi-foot">Синтетические показания и тренды</div></article>
+</section>
+<main class="layout">
+  <div class="left-col">
+    <section class="panel">
+      <div class="panel-heading"><div><span class="section-tag">01 / ОБЗОР</span><h2>Схема станции</h2></div><div class="legend"><span><i class="good"></i>Норма</span><span><i class="warn"></i>Внимание</span><span><i class="bad"></i>Критично</span></div></div>
+      <div class="map-wrap"><svg class="station-svg" id="stationMap" viewBox="0 0 980 310" role="img" aria-label="Условная схема станции с сигналами, стрелками и участками пути"></svg></div>
+      <p class="note">Схема условная. Нажмите на объект, чтобы выбрать его. Состояние участка «занят» само по себе не считается неисправностью.</p>
+    </section>
+    <section class="panel">
+      <div class="panel-heading"><div><span class="section-tag">02 / ТЕЛЕМЕТРИЯ</span><h2>Объекты станции</h2></div><span class="pill neutral" id="deviceCount">20 объектов</span></div>
+      <div class="device-grid" id="deviceGrid"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-heading"><div><span class="section-tag">03 / ИСТОРИЯ</span><h2>Тренд выбранного объекта · 72 ч</h2></div><div class="chart-head"><select class="select" id="chartMetric" aria-label="Показатель графика"><option value="health">Индекс состояния</option><option value="time">Время перевода</option><option value="current">Ток</option><option value="temp">Температура</option><option value="voltage">Напряжение</option></select></div></div>
+      <canvas class="chart" id="historyChart" aria-label="График истории параметров за 72 часа"></canvas>
+      <div class="chart-legend"><span id="chartCaption">SW-17 · индекс состояния</span><b id="chartCurrent">100.0</b></div>
+      <div class="weights"><b>Расчёт индекса:</b> 100 − взвешенные штрафы за время перевода (30%), отклонение тока (25%), температуру (20%), историю отказов (15%) и циклы/обслуживание (10%).</div>
+    </section>
+    <section class="panel">
+      <div class="panel-heading"><div><span class="section-tag">04 / СОБЫТИЯ</span><h2>Журнал событий</h2></div><button class="btn quiet" id="clearLogBtn">Очистить журнал</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Время модели</th><th>Объект</th><th>Событие</th><th>Уровень</th></tr></thead><tbody id="logBody"></tbody></table></div>
+    </section>
+  </div>
+  <aside class="right-col">
+    <section class="panel">
+      <div class="panel-heading"><div><span class="section-tag">05 / ОБЪЕКТ</span><h2>Параметры и нагрузка</h2></div></div>
+      <div id="detailPanel"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-heading"><div><span class="section-tag">06 / СЦЕНАРИИ</span><h2>Проверка поведения</h2></div></div>
+      <div class="scenario-list">
+        <button class="scenario deteriorate" id="slowBtn"><span class="ico">◷</span><span><strong>Постепенный износ SW-17</strong><small>Рост времени, тока и температуры по ходу времени</small></span></button>
+        <button class="scenario lost" id="lostBtn"><span class="ico">!</span><span><strong>Потеря контроля SW-17</strong><small>Мгновенное критическое событие</small></span></button>
+        <button class="scenario" id="occupyBtn"><span class="ico">▤</span><span><strong>Занять участок TC-03</strong><small>Проверка индикации рельсовой цепи</small></span></button>
+      </div>
+      <div class="diagnostic" id="diagnosticBox"><div class="diag-head"><span class="dot good" id="diagnosticDot"></span><span id="diagnosticHeading">Диагностика: отклонений нет</span></div><p id="diagnosticMessage">Выберите сценарий или измените телеметрию выбранного объекта.</p><div class="recommendation"><span>РЕКОМЕНДАЦИЯ</span><p id="recommendationText">Продолжайте наблюдение за синтетическими данными.</p></div></div>
+    </section>
+    <section class="panel">
+      <div class="panel-heading"><div><span class="section-tag">07 / ОБСЛУЖИВАНИЕ</span><h2>Очередь диагностики</h2></div><span class="pill neutral" id="queueCount">0 заявок</span></div>
+      <div class="queue-list" id="queueList"></div>
+      <p class="small-copy">Создание заявки только фиксирует запись в учебной очереди и журнале.</p>
+    </section>
+  </aside>
+</main>
+<footer><span>SMART SCB · Учебный прототип кейса</span><span class="footer-note">Синтетические данные · Не подключён к ЖАТ и не предназначен для управления реальным оборудованием</span></footer>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="/app.js" defer></script>
+</body>
+</html>
