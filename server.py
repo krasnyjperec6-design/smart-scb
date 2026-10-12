@@ -168,21 +168,83 @@ class SmartScbHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
 
-        if parsed.path != "/api/events":
-            self.send_json({"error": "Маршрут не найден"}, HTTPStatus.NOT_FOUND)
-            return
-
         try:
-            with connect() as connection:
-                deleted = connection.execute("DELETE FROM events").rowcount
-            logger.info("events cleared | deleted=%s", deleted)
-            self.send_json({"deleted": deleted})
+            if parsed.path == "/api/events":
+                with connect() as connection:
+                    deleted = connection.execute("DELETE FROM events").rowcount
+                logger.info("events cleared | deleted=%s", deleted)
+                self.send_json({"deleted": deleted})
+                return
+
+            if parsed.path == "/api/tickets":
+                self.resolve_tickets(parse_qs(parsed.query))
+                return
+
+            self.send_json({"error": "Маршрут не найден"}, HTTPStatus.NOT_FOUND)
         except sqlite3.Error:
             logger.exception("database error | method=DELETE | path=%s", parsed.path)
             self.send_json(
                 {"error": "Ошибка базы данных"},
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
+
+    def resolve_tickets(self, query: dict[str, list[str]]) -> None:
+        model_time = self.clean_text(
+            query.get("model_time", ["—"])[0],
+            "model_time",
+            32,
+        )
+        requested_device = str(query.get("device_id", [""])[0]).strip()
+        if requested_device:
+            requested_device = self.clean_text(
+                requested_device,
+                "device_id",
+                32,
+            )
+
+        with connect() as connection:
+            if requested_device:
+                rows = connection.execute(
+                    """
+                    SELECT id, device_id
+                    FROM tickets
+                    WHERE state = 'Открыта' AND device_id = ?
+                    ORDER BY id
+                    """,
+                    (requested_device,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT id, device_id
+                    FROM tickets
+                    WHERE state = 'Открыта'
+                    ORDER BY id
+                    """
+                ).fetchall()
+
+            resolved = [dict(row) for row in rows]
+            if resolved:
+                connection.executemany(
+                    "UPDATE tickets SET state = 'Устранена' WHERE id = ?",
+                    [(ticket["id"],) for ticket in resolved],
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO events (model_time, device_id, message, level)
+                    VALUES (?, ?, 'Заявка устранена', 'info')
+                    """,
+                    [(model_time, ticket["device_id"]) for ticket in resolved],
+                )
+
+        for ticket in resolved:
+            logger.info(
+                "ticket resolved | id=%s | device=%s | message=Заявка устранена",
+                ticket["id"],
+                ticket["device_id"],
+            )
+
+        self.send_json({"resolved": len(resolved), "tickets": resolved})
 
     def get_devices(self) -> None:
         with connect() as connection:

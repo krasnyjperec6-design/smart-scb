@@ -76,9 +76,10 @@ async function loadTelemetry(id){
 }
 function stamp(){const h=Math.floor(simMinutes/60)%24,m=simMinutes%60,day=Math.floor(simMinutes/1440)+1;return "Д"+day+" "+String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")}
 function clockText(){const h=Math.floor(simMinutes/60)%24,m=simMinutes%60,day=Math.floor(simMinutes/1440)+1;return "День "+day+" · "+String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")}
-function addEvent(id,message,level){
+function addEvent(id,message,level,persist){
  const entry={time:stamp(),device:id,message:message,level:level||"info"};
  events.unshift(entry);events=events.slice(0,100);saveEvents();renderLog();
+ if(persist===false)return;
  api("/api/events",{method:"POST",body:JSON.stringify({model_time:entry.time,device_id:entry.device,message:entry.message,level:entry.level})}).then(function(){backendAvailable=true}).catch(markBackendUnavailable)
 }
 function toast(message){const el=$("toast");el.textContent=message;el.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(function(){el.classList.remove("show")},2400)}
@@ -165,7 +166,13 @@ function renderLog(){
 function renderQueue(){
  const q=$("queueList");q.textContent="";let open=tickets.filter(function(t){return t.state==="Открыта"});$("queueCount").textContent=open.length+" "+(open.length===1?"заявка":"заявок");
  if(!open.length){q.innerHTML='<div class="empty">Очередь пока пуста. Создайте заявку из карточки выбранного объекта.</div>';return}
- open.slice(0,8).forEach(function(t){let el=document.createElement("div");el.className="ticket";el.innerHTML="<span><strong>"+t.device+" · "+t.priority+"</strong><small>"+t.created+" · "+t.reason+"</small></span><span class=\"ticket-status\">"+t.state+"</span>";q.appendChild(el)})
+ open.slice(0,8).forEach(function(t){
+  let el=document.createElement("div"),info=document.createElement("span"),actions=document.createElement("span"),status=document.createElement("span"),button=document.createElement("button");
+  el.className="ticket";info.innerHTML="<strong>"+t.device+" · "+t.priority+"</strong><small>"+t.created+" · "+t.reason+"</small>";
+  actions.className="ticket-actions";status.className="ticket-status";status.textContent=t.state;
+  button.className="btn quiet ticket-resolve";button.type="button";button.textContent="Заявка устранена";button.addEventListener("click",function(){resolveTicket(t)});
+  actions.appendChild(status);actions.appendChild(button);el.appendChild(info);el.appendChild(actions);q.appendChild(el)
+ })
 }
 function renderAll(){devices.forEach(updateHealth);renderSystem();renderCards();renderMap();renderDetail();renderQueue();drawChart()}
 function createTicket(){
@@ -176,6 +183,30 @@ function createTicket(){
  tickets.unshift(ticket);
  api("/api/tickets",{method:"POST",body:JSON.stringify({device_id:ticket.device,priority:ticket.priority,reason:ticket.reason,state:ticket.state,created_model_time:ticket.created})}).then(function(result){ticket.id=result.id;backendAvailable=true}).catch(markBackendUnavailable);
  addEvent(d.id,"Создана заявка на диагностику · "+priority,d.status==="bad"?"bad":d.status==="warn"?"warn":"info");renderSystem();renderQueue();toast("Заявка по "+d.id+" добавлена")
+}
+function resolveTicket(ticket){
+ if(!ticket||ticket.state!=="Открыта"){toast("Заявка уже устранена");return}
+ const finish=function(serverPersisted){
+  ticket.state="Устранена";addEvent(ticket.device,"Заявка устранена","info",serverPersisted);renderSystem();renderQueue()
+ };
+ api("/api/tickets?device_id="+encodeURIComponent(ticket.device)+"&model_time="+encodeURIComponent(stamp()),{method:"DELETE"}).then(function(){
+  backendAvailable=true;finish(false);toast("Заявка по "+ticket.device+" устранена")
+ }).catch(function(){
+  markBackendUnavailable();finish(true);toast("Заявка по "+ticket.device+" устранена локально")
+ })
+}
+function resolveTickets(){
+ const open=tickets.filter(function(t){return t.state==="Открыта"});
+ if(!open.length){toast("Открытых заявок нет");return}
+ const finish=function(serverPersisted){
+  open.forEach(function(t){t.state="Устранена";addEvent(t.device,"Заявка устранена","info",serverPersisted)});
+  renderSystem();renderQueue()
+ };
+ api("/api/tickets?model_time="+encodeURIComponent(stamp()),{method:"DELETE"}).then(function(result){
+  backendAvailable=true;finish(false);toast("Устранено заявок: "+Number(result.resolved||open.length))
+ }).catch(function(){
+  markBackendUnavailable();finish(true);toast("Заявки сброшены локально")
+ })
 }
 function randomDeviation(){
  const candidates=devices.filter(function(d){return d.type==="switch"}),d=candidates[Math.floor(Math.random()*candidates.length)];
@@ -243,7 +274,7 @@ function reset(){
 $("deviceGrid").addEventListener("click",function(e){let card=e.target.closest("[data-device]");if(card)selectDevice(card.getAttribute("data-device"))});
 $("deviceGrid").addEventListener("keydown",function(e){if((e.key==="Enter"||e.key===" ")&&e.target.matches("[data-device]")){e.preventDefault();selectDevice(e.target.getAttribute("data-device"))}});
 $("reloadDbBtn").addEventListener("click",function(){reloadDevicesFromDatabase(true)});
-$("runBtn").addEventListener("click",toggleRun);$("stepBtn").addEventListener("click",step);$("scenarioBtn").addEventListener("click",startDegradation);$("slowBtn").addEventListener("click",startDegradation);$("lostBtn").addEventListener("click",loseControl);$("occupyBtn").addEventListener("click",occupyTrack);$("randomBtn").addEventListener("click",randomDeviation);$("ticketBtn").addEventListener("click",createTicket);$("exportBtn").addEventListener("click",exportCsv);$("resetBtn").addEventListener("click",reset);
+$("runBtn").addEventListener("click",toggleRun);$("stepBtn").addEventListener("click",step);$("scenarioBtn").addEventListener("click",startDegradation);$("slowBtn").addEventListener("click",startDegradation);$("lostBtn").addEventListener("click",loseControl);$("occupyBtn").addEventListener("click",occupyTrack);$("randomBtn").addEventListener("click",randomDeviation);$("ticketBtn").addEventListener("click",createTicket);$("resolveTicketsBtn").addEventListener("click",resolveTickets);$("exportBtn").addEventListener("click",exportCsv);$("resetBtn").addEventListener("click",reset);
 $("clearLogBtn").addEventListener("click",function(){events=[];saveEvents();renderLog();api("/api/events",{method:"DELETE"}).then(function(){backendAvailable=true;toast("Журнал очищен")}).catch(function(){markBackendUnavailable();toast("Локальный журнал очищен")})});
 $("chartMetric").addEventListener("change",function(){devices.forEach(function(d){history[d.id]=Array(72).fill(metricValue(d,$("chartMetric").value))});drawChart();loadTelemetry(selectedId)});
 window.addEventListener("resize",drawChart);
